@@ -39,3 +39,11 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Firebase credentials (keep private!)
+firebase.js
+
+# Import scripts (one-time use)
+import_*.js
+delete_*.js
+create_*.js
