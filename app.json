@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "MazKhat",
-    "slug": "okcredit-clone",
+    "slug": "MazKhat",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -42,11 +42,11 @@
         }
       ]
     ],
+    "owner": "kd2000",
     "extra": {
       "eas": {
-        "projectId": "8cf55677-87a4-4339-ba8b-c151384b6d12"
+        "projectId": "cb0f0172-a854-4762-8af3-11fe05a89894"
       }
-    },
-    "owner": "kd2000"
+    }
   }
 }

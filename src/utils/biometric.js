@@ -5,15 +5,45 @@ import { Platform } from 'react-native';
 const BIOMETRIC_KEY = 'mazkhat_biometric_enabled';
 
 /**
+ * Checks if the device hardware supports biometrics.
+ */
+export const hasBiometricHardware = async () => {
+    try {
+        return await LocalAuthentication.hasHardwareAsync();
+    } catch (error) {
+        console.error('Biometric hardware check error:', error);
+        return false;
+    }
+};
+
+/**
+ * Checks if the device has enrolled biometric records.
+ */
+export const isBiometricEnrolled = async () => {
+    try {
+        return await LocalAuthentication.isEnrolledAsync();
+    } catch (error) {
+        console.error('Biometric enrollment check error:', error);
+        return false;
+    }
+};
+
+/**
  * Checks if the device hardware supports biometrics and has enrolled records.
+ * Legacy wrapper for compatibility.
  */
 export const isBiometricAvailable = async () => {
     try {
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-        return hasHardware && isEnrolled;
+        const hasHardware = await hasBiometricHardware();
+        if (!hasHardware) return false;
+
+        const isEnrolled = await isBiometricEnrolled();
+        const enrolledLevel = await LocalAuthentication.getEnrolledLevelAsync();
+
+        // SecurityLevel.BIOMETRIC is 2, SecurityLevel.SECRET is 1, NONE is 0
+        return isEnrolled || enrolledLevel > 0;
     } catch (error) {
-        console.error('Biometric: Availability check failed', error);
+        console.error('Biometric availability check error:', error);
         return false;
     }
 };

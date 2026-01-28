@@ -41,7 +41,7 @@ yarn-error.*
 /android
 
 # Firebase credentials (keep private!)
-firebase.js
+# firebase.js
 
 # Import scripts (one-time use)
 import_*.js

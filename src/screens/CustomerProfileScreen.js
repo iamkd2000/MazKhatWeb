@@ -10,8 +10,10 @@ import {
     Platform,
     SafeAreaView,
     StatusBar,
-    Alert
+    Alert,
+    Image
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { saveLedger, deleteLedger } from '../utils/storage';
 import { useTheme } from '../context/ThemeContext';
@@ -24,6 +26,7 @@ export default function CustomerProfileScreen({ route, navigation }) {
     const [name, setName] = useState(ledger.name || '');
     const [phone, setPhone] = useState(ledger.phone || '');
     const [address, setAddress] = useState(ledger.address || '');
+    const [profileImage, setProfileImage] = useState(ledger.profileImage || null);
     const [loading, setLoading] = useState(false);
 
     const showAlert = (title, message) => {
@@ -45,6 +48,7 @@ export default function CustomerProfileScreen({ route, navigation }) {
             name: name.trim(),
             phone: phone.trim(),
             address: address.trim(),
+            profileImage: profileImage,
             updatedAt: new Date().toISOString()
         };
 
@@ -87,6 +91,32 @@ export default function CustomerProfileScreen({ route, navigation }) {
         }
     };
 
+    const pickProfileImage = async () => {
+        try {
+            const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+            if (permissionResult.granted === false) {
+                showAlert('Permission Required', 'Please allow access to your photos to upload a profile picture.');
+                return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.7,
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const imageUri = result.assets[0].uri;
+                setProfileImage(imageUri);
+            }
+        } catch (error) {
+            console.error('Error picking image:', error);
+            showAlert('Error', 'Failed to pick image. Please try again.');
+        }
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor={colors.PRIMARY} />
@@ -101,9 +131,16 @@ export default function CustomerProfileScreen({ route, navigation }) {
 
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={styles.profileCard}>
-                    <View style={styles.avatarCircle}>
-                        <Text style={styles.avatarText}>{name.charAt(0).toUpperCase() || '?'}</Text>
-                    </View>
+                    <TouchableOpacity onPress={pickProfileImage} style={styles.avatarCircle}>
+                        {profileImage ? (
+                            <Image source={{ uri: profileImage }} style={styles.avatarImage} />
+                        ) : (
+                            <Text style={styles.avatarText}>{name.charAt(0).toUpperCase() || '?'}</Text>
+                        )}
+                        <View style={styles.cameraIconContainer}>
+                            <Ionicons name="camera" size={16} color={colors.WHITE} />
+                        </View>
+                    </TouchableOpacity>
                     <Text style={styles.customerNameDisplay}>{name || 'Customer Profile'}</Text>
                     <Text style={styles.balanceText}>
                         Current Balance: <Text style={{ color: ledger.balance >= 0 ? colors.DEBIT_RED : colors.CREDIT_GREEN }}>
@@ -218,6 +255,24 @@ const getStyles = (colors) => StyleSheet.create({
         color: colors.WHITE,
         fontSize: 32,
         fontWeight: 'bold',
+    },
+    avatarImage: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 40,
+    },
+    cameraIconContainer: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: colors.PRIMARY,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: colors.CARD_BG,
     },
     customerNameDisplay: {
         fontSize: 22,

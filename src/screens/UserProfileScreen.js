@@ -18,7 +18,7 @@ import { getUserProfile, saveUserProfile, getCategories, saveCategories, clearAl
 import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import { auth } from '../../firebase';
 import { LIGHT_COLORS as COLORS } from '../styles/colors';
-import { isBiometricAvailable, getBiometricPreference, setBiometricPreference, getBiometricType } from '../utils/biometric';
+import { isBiometricAvailable, getBiometricPreference, setBiometricPreference, getBiometricType, hasBiometricHardware, isBiometricEnrolled } from '../utils/biometric';
 import { Switch } from 'react-native';
 import SecurityVerifyModal from '../components/SecurityVerifyModal';
 import { useTheme } from '../context/ThemeContext';
@@ -36,7 +36,8 @@ export default function UserProfileScreen({ navigation }) {
         bankName: '',
         accountNumber: '',
         ifsc: '',
-        upiIds: []
+        upiIds: [],
+        profileImage: null
     });
     const [categories, setCategories] = useState([]);
     const [newUpi, setNewUpi] = useState('');
@@ -50,6 +51,7 @@ export default function UserProfileScreen({ navigation }) {
     const [changingPassword, setChangingPassword] = useState(false);
     const [pinEnabled, setPinEnabled] = useState(false);
     const [biometricSupported, setBiometricSupported] = useState(false);
+    const [biometricEnrolled, setBiometricEnrolled] = useState(false);
     const [biometricEnabled, setBiometricEnabled] = useState(false);
     const [bioType, setBioType] = useState('Face / Fingerprint');
     const [showSecurityModal, setShowSecurityModal] = useState(false);
@@ -80,12 +82,14 @@ export default function UserProfileScreen({ navigation }) {
 
     const checkSecuritySettings = async () => {
         const pinActive = await isPINEnabled();
-        const bioSupport = await isBiometricAvailable();
+        const hasHardware = await hasBiometricHardware();
+        const enrolled = await isBiometricEnrolled();
         const bioPref = await getBiometricPreference();
         const type = await getBiometricType();
 
         setPinEnabled(pinActive);
-        setBiometricSupported(bioSupport);
+        setBiometricSupported(hasHardware);
+        setBiometricEnrolled(enrolled);
         setBiometricEnabled(bioPref);
         setBioType(type);
     };
@@ -353,7 +357,32 @@ export default function UserProfileScreen({ navigation }) {
         }
     };
 
+    // Profile Image Picker
+    const pickProfileImage = async () => {
+        try {
+            const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
+            if (permissionResult.granted === false) {
+                Alert.alert('Permission Required', 'Please allow access to your photos to upload a profile picture.');
+                return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.7,
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const imageUri = result.assets[0].uri;
+                setProfile({ ...profile, profileImage: imageUri });
+            }
+        } catch (error) {
+            console.error('Error picking image:', error);
+            Alert.alert('Error', 'Failed to pick image. Please try again.');
+        }
+    };
 
     return (
         <SafeAreaView style={styles.container}>
@@ -375,6 +404,23 @@ export default function UserProfileScreen({ navigation }) {
             </View>
 
             <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+                {/* Profile Picture Section */}
+                <View style={styles.profilePictureSection}>
+                    <TouchableOpacity onPress={pickProfileImage} style={styles.profilePictureContainer}>
+                        {profile.profileImage ? (
+                            <Image source={{ uri: profile.profileImage }} style={styles.profileImage} />
+                        ) : (
+                            <View style={styles.profileImagePlaceholder}>
+                                <Ionicons name="person" size={50} color={colors.TEXT_SECONDARY} />
+                            </View>
+                        )}
+                        <View style={styles.cameraIconContainer}>
+                            <Ionicons name="camera" size={16} color={colors.WHITE} />
+                        </View>
+                    </TouchableOpacity>
+                    <Text style={styles.profilePictureHint}>Tap to change profile picture</Text>
+                </View>
+
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Business Details</Text>
                     <View style={styles.inputGroup}>
@@ -604,13 +650,16 @@ export default function UserProfileScreen({ navigation }) {
                                     {bioType} ID Lock
                                 </Text>
                                 <Text style={styles.securitySub}>
-                                    {!biometricSupported ? (Platform.OS === 'web' ? 'Available on Mobile App 📱' : 'Not supported on this device') : `Use ${bioType} to unlock`}
+                                    {!biometricSupported ?
+                                        (Platform.OS === 'web' ? 'Available on Mobile App 📱' : 'Hardware not detected') :
+                                        (!biometricEnrolled ? `No ${bioType} enrolled in device settings` : `Use ${bioType} to unlock`)
+                                    }
                                 </Text>
                             </View>
                         </View>
                         <Switch
                             value={biometricEnabled}
-                            disabled={!pinEnabled || !biometricSupported}
+                            disabled={!pinEnabled || !biometricSupported || !biometricEnrolled}
                             onValueChange={handleToggleBiometric}
                             trackColor={{ false: '#D1D1D1', true: colors.PRIMARY }}
                             thumbColor={Platform.OS === 'ios' ? '#FFF' : biometricEnabled ? colors.PRIMARY : '#F4F3F4'}
@@ -754,6 +803,51 @@ const getStyles = (colors) => StyleSheet.create({
     },
     scrollContent: {
         padding: 15,
+    },
+    profilePictureSection: {
+        alignItems: 'center',
+        marginBottom: 25,
+        paddingTop: 10,
+    },
+    profilePictureContainer: {
+        position: 'relative',
+        width: 100,
+        height: 100,
+    },
+    profileImage: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        borderWidth: 3,
+        borderColor: colors.PRIMARY,
+    },
+    profileImagePlaceholder: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        backgroundColor: colors.BORDER,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 3,
+        borderColor: colors.PRIMARY,
+    },
+    cameraIconContainer: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: colors.PRIMARY,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: colors.WHITE,
+    },
+    profilePictureHint: {
+        marginTop: 10,
+        fontSize: 12,
+        color: colors.TEXT_SECONDARY,
     },
     section: {
         backgroundColor: colors.CARD_BG,

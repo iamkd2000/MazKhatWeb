@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, TextInput, Modal, Platform, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, TextInput, Modal, Platform, SafeAreaView, StatusBar, Image } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { getAllLedgers, saveLedger, fetchFromFirebase, deleteLedger, clearAllData, syncAllToFirebase, getExpenses, saveExpense, deleteExpense, fetchExpensesFromFirebase, getCategories, fetchCategoriesFromFirebase, getBackupSettings } from '../utils/storage';
+import { getAllLedgers, saveLedger, fetchFromFirebase, deleteLedger, clearAllData, syncAllToFirebase, getExpenses, saveExpense, deleteExpense, fetchExpensesFromFirebase, getCategories, fetchCategoriesFromFirebase, getBackupSettings, getUserProfile } from '../utils/storage';
 import { exportDataToBackup, importDataFromBackup } from '../utils/backup';
 import { signOut } from 'firebase/auth';
 import { auth } from '../../firebase';
@@ -42,6 +42,7 @@ export default function HomeScreen({ navigation }) {
     const [showSecurityModal, setShowSecurityModal] = useState(false);
     const [backupEnabled, setBackupEnabled] = useState(false);
     const [lastSync, setLastSync] = useState(null);
+    const [userProfile, setUserProfile] = useState(null);
 
     const showAlert = (title, message) => {
         if (Platform.OS === 'web') {
@@ -56,17 +57,19 @@ export default function HomeScreen({ navigation }) {
 
     const loadData = useCallback(async () => {
         setRefreshing(true);
-        const [ledgersData, expensesData, catData, backupData] = await Promise.all([
+        const [ledgersData, expensesData, catData, backupData, profileData] = await Promise.all([
             getAllLedgers(),
             getExpenses(),
             getCategories(),
-            getBackupSettings()
+            getBackupSettings(),
+            getUserProfile()
         ]);
         setLedgers(Object.values(ledgersData));
         setExpenses(expensesData);
         setCategories(catData);
         setBackupEnabled(backupData.autoBackup);
         setLastSync(backupData.lastSync);
+        setUserProfile(profileData);
 
         // Auto-sync only if enabled AND cooldown has passed
         if (backupData.autoBackup && !syncing) {
@@ -358,7 +361,11 @@ export default function HomeScreen({ navigation }) {
                         onPress={() => navigation.navigate('UserProfile')}
                     >
                         <View style={styles.avatar}>
-                            <Text style={styles.avatarText}>K</Text>
+                            {userProfile?.profileImage ? (
+                                <Image source={{ uri: userProfile.profileImage }} style={styles.avatarImage} />
+                            ) : (
+                                <Text style={styles.avatarText}>{userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : 'K'}</Text>
+                            )}
                         </View>
                         <View style={styles.syncIndicator}>
                             <MaterialCommunityIcons name="sync-circle" size={14} color="#FFF" />
@@ -366,7 +373,7 @@ export default function HomeScreen({ navigation }) {
                     </TouchableOpacity>
                     <View style={styles.profileInfo}>
                         <Text style={styles.welcomeText}>Welcome,</Text>
-                        <Text style={styles.userName}>MaZaKht Business</Text>
+                        <Text style={styles.userName}>{userProfile?.name || 'MaZaKht Business'}</Text>
                     </View>
                 </View>
 
@@ -958,7 +965,30 @@ export default function HomeScreen({ navigation }) {
                                     style={styles.menuItem}
                                     onPress={() => {
                                         setShowMenuModal(false);
-                                        alert('MazKhat v1.0.1\nA premium ledger app.');
+                                        alert(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    📒 MazKhat - Udhaar Khata Book
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Version: 1.0.1
+
+MazKhat is a premium digital ledger app designed to help you manage customer credit (Udhaar), track expenses, and gain business insights - all in one place.
+
+✨ Key Features:
+• Customer Ledger Management
+• Daily Expense Tracking
+• Business Insights & Analytics
+• Cloud Backup & Sync
+• PDF Statement Generation
+• PIN & Biometric Security
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👨‍💻 Developed by:
+    Khomendra Dahake
+
+🏢 KD PVT LTD
+
+© 2026 KD PVT LTD
+All Rights Reserved.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
                                     }}
                                 >
                                     <View style={styles.menuItemContent}>
@@ -1029,12 +1059,17 @@ const getStyles = (colors) => StyleSheet.create({
         position: 'relative',
     },
     avatar: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#9C27B0',
-        justifyContent: 'center',
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#9C27B0', // Assuming COLORS.ACCENT_YELLOW is equivalent to this or needs to be defined
         alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarImage: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 20,
     },
     avatarText: {
         color: '#FFF',

@@ -12,7 +12,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../styles/colors';
 import { useTheme } from '../context/ThemeContext';
-import { getBiometricPreference, authenticateBiometric, getBiometricType } from '../utils/biometric';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { getBiometricPreference, authenticateBiometric, getBiometricType, hasBiometricHardware, isBiometricEnrolled } from '../utils/biometric';
 import { auth } from '../../firebase';
 import { signOut } from 'firebase/auth';
 
@@ -36,8 +37,8 @@ export default function PINScreen({ onSuccess, mode = 'verify' }) {
     }, []);
 
     const checkBiometricAvailability = async () => {
-        const compatible = await LocalAuthentication.hasHardwareAsync();
-        const enrolled = await LocalAuthentication.isEnrolledAsync();
+        const compatible = await hasBiometricHardware();
+        const enrolled = await isBiometricEnrolled();
         const pref = await getBiometricPreference();
         const type = await getBiometricType();
 
@@ -283,19 +284,21 @@ const getStyles = (colors) => StyleSheet.create({
         backgroundColor: colors.PRIMARY,
     },
     keypad: {
+        width: '100%',
+        maxWidth: 300,
         flexDirection: 'row',
         flexWrap: 'wrap',
-        width: 300,
         justifyContent: 'center',
+        alignItems: 'center',
     },
     key: {
-        width: 80,
-        height: 80,
-        margin: 11,
-        borderRadius: 40,
-        backgroundColor: colors.isDark ? '#2C2C2C' : colors.CARD_BG,
-        alignItems: 'center',
+        width: 70,
+        height: 70,
+        borderRadius: 35,
+        backgroundColor: '#222',
         justifyContent: 'center',
+        alignItems: 'center',
+        margin: 10,
         elevation: 2,
         shadowColor: colors.BLACK,
         shadowOffset: { width: 0, height: 2 },

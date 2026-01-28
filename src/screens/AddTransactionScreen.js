@@ -232,122 +232,117 @@ export default function AddTransactionScreen({ route, navigation }) {
                 <Modal visible={showDateModal} transparent animationType="fade">
                     <View style={styles.modalOverlay}>
                         <View style={styles.modalContent}>
-                            <Text style={styles.modalTitle}>Select Date & Time</Text>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Select Transaction Date</Text>
+                                <TouchableOpacity onPress={() => setShowDateModal(false)}>
+                                    <Ionicons name="close" size={24} color={colors.TEXT_PRIMARY} />
+                                </TouchableOpacity>
+                            </View>
 
-                            <View style={styles.dateOption}>
-                                <Text style={styles.inputSubLabel}>Date:</Text>
-                                {Platform.OS === 'web' ? (
-                                    <input
-                                        type="date"
-                                        max="9999-12-31"
-                                        defaultValue={new Date().toISOString().split('T')[0]}
-                                        style={styles.htmlDateInput}
-                                        onChange={(e) => {
-                                            if (e.target.value) {
-                                                const [y, m, d] = e.target.value.split('-');
-                                                const currentDateTime = new Date(date.replace(',', ''));
-                                                const newDate = new Date(y, m - 1, d);
-
-                                                newDate.setHours(currentDateTime.getHours());
-                                                newDate.setMinutes(currentDateTime.getMinutes());
-
-                                                setDate(newDate.toLocaleString('en-GB', {
-                                                    day: '2-digit', month: 'short', year: 'numeric',
-                                                    hour: '2-digit', minute: '2-digit'
-                                                }));
-                                                setSelectedDate(newDate);
-                                            }
-                                        }}
-                                    />
-                                ) : (
+                            <Text style={styles.inputHint}>Format: DD/MM/YYYY</Text>
+                            {Platform.OS === 'web' ? (
+                                <input
+                                    type="date"
+                                    style={{
+                                        padding: 12,
+                                        borderRadius: 8,
+                                        border: `1px solid ${colors.BORDER}`,
+                                        marginBottom: 20,
+                                        fontSize: 16,
+                                        width: '100%',
+                                        outline: 'none'
+                                    }}
+                                    value={selectedDate.toISOString().split('T')[0]}
+                                    onChange={(e) => {
+                                        const newDate = new Date(e.target.value);
+                                        const current = new Date(selectedDate);
+                                        current.setFullYear(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
+                                        setSelectedDate(current);
+                                    }}
+                                />
+                            ) : (
+                                <View style={styles.datePickerContainer}>
                                     <TextInput
-                                        style={styles.dateValue}
+                                        style={styles.nativeDateInput}
                                         value={selectedDate.toLocaleDateString('en-GB')}
-                                        onChangeText={(text) => {
-                                            // Try to parse DD/MM/YYYY format
-                                            const parts = text.split('/');
-                                            if (parts.length === 3) {
-                                                const [day, month, year] = parts;
-                                                const newDate = new Date(year, month - 1, day);
-                                                if (!isNaN(newDate.getTime())) {
-                                                    newDate.setHours(selectedDate.getHours());
-                                                    newDate.setMinutes(selectedDate.getMinutes());
-                                                    setDate(newDate.toLocaleString('en-GB', {
-                                                        day: '2-digit', month: 'short', year: 'numeric',
-                                                        hour: '2-digit', minute: '2-digit'
-                                                    }));
-                                                    setSelectedDate(newDate);
-                                                }
-                                            }
-                                        }}
                                         placeholder="DD/MM/YYYY"
-                                        keyboardType="numeric"
-                                    />
-                                )}
-                            </View>
-
-                            <View style={[styles.dateOption, { marginTop: 15 }]}>
-                                <Text style={styles.inputSubLabel}>Time:</Text>
-                                {Platform.OS === 'web' ? (
-                                    <input
-                                        type="time"
-                                        defaultValue={new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                                        style={styles.htmlDateInput}
-                                        onChange={(e) => {
-                                            if (e.target.value) {
-                                                const [hours, minutes] = e.target.value.split(':');
-                                                const currentDateTime = new Date(date.replace(',', ''));
-
-                                                currentDateTime.setHours(parseInt(hours, 10));
-                                                currentDateTime.setMinutes(parseInt(minutes, 10));
-
-                                                setDate(currentDateTime.toLocaleString('en-GB', {
-                                                    day: '2-digit', month: 'short', year: 'numeric',
-                                                    hour: '2-digit', minute: '2-digit'
-                                                }));
-                                                setSelectedDate(currentDateTime);
-                                            }
-                                        }}
-                                    />
-                                ) : (
-                                    <TextInput
-                                        style={styles.dateValue}
-                                        value={selectedDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                                        keyboardType="number-pad"
+                                        maxLength={10}
                                         onChangeText={(text) => {
-                                            // Try to parse HH:MM format
-                                            const parts = text.split(':');
-                                            if (parts.length === 2) {
-                                                const [hours, minutes] = parts;
-                                                const newDate = new Date(selectedDate);
-                                                newDate.setHours(parseInt(hours, 10));
-                                                newDate.setMinutes(parseInt(minutes, 10));
-                                                if (!isNaN(newDate.getTime())) {
-                                                    setDate(newDate.toLocaleString('en-GB', {
-                                                        day: '2-digit', month: 'short', year: 'numeric',
-                                                        hour: '2-digit', minute: '2-digit'
-                                                    }));
+                                            if (text.length === 10) {
+                                                const [d, m, y] = text.split('/').map(Number);
+                                                if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+                                                    const newDate = new Date(selectedDate);
+                                                    newDate.setFullYear(y, m - 1, d);
                                                     setSelectedDate(newDate);
                                                 }
                                             }
                                         }}
-                                        placeholder="HH:MM"
-                                        keyboardType="numeric"
                                     />
-                                )}
-                            </View>
+                                </View>
+                            )}
 
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 25 }}>
+                            <Text style={styles.inputHint}>Format: HH:MM (24h)</Text>
+                            {Platform.OS === 'web' ? (
+                                <input
+                                    type="time"
+                                    style={{
+                                        padding: 12,
+                                        borderRadius: 8,
+                                        border: `1px solid ${colors.BORDER}`,
+                                        marginBottom: 20,
+                                        fontSize: 16,
+                                        width: '100%',
+                                        outline: 'none'
+                                    }}
+                                    value={selectedDate.toTimeString().slice(0, 5)}
+                                    onChange={(e) => {
+                                        const [h, m] = e.target.value.split(':').map(Number);
+                                        const current = new Date(selectedDate);
+                                        current.setHours(h, m);
+                                        setSelectedDate(current);
+                                    }}
+                                />
+                            ) : (
+                                <View style={styles.datePickerContainer}>
+                                    <TextInput
+                                        style={styles.nativeDateInput}
+                                        value={selectedDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                                        placeholder="HH:MM"
+                                        keyboardType="number-pad"
+                                        maxLength={5}
+                                        onChangeText={(text) => {
+                                            if (text.length === 5) {
+                                                const [h, m] = text.split(':').map(Number);
+                                                if (!isNaN(h) && !isNaN(m)) {
+                                                    const newDate = new Date(selectedDate);
+                                                    newDate.setHours(h, m);
+                                                    setSelectedDate(newDate);
+                                                }
+                                            }
+                                        }}
+                                    />
+                                </View>
+                            )}
+
+                            <View style={styles.modalActions}>
                                 <TouchableOpacity
-                                    style={[styles.modalDoneBtn, { flex: 1, marginRight: 10, backgroundColor: colors.isDark ? '#333' : '#F0F0F0' }]}
+                                    style={[styles.modalButton, styles.modalCancelBtn]}
                                     onPress={() => setShowDateModal(false)}
                                 >
-                                    <Text style={[styles.modalDoneText, { color: colors.TEXT_PRIMARY }]}>Cancel</Text>
+                                    <Text style={styles.modalCancelText}>CANCEL</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                    style={[styles.modalDoneBtn, { flex: 1, marginLeft: 10, backgroundColor: colors.PRIMARY }]}
-                                    onPress={() => setShowDateModal(false)}
+                                    style={[styles.modalButton, styles.modalConfirmBtn]}
+                                    onPress={() => {
+                                        setDate(selectedDate.toLocaleString('en-GB', {
+                                            day: '2-digit', month: 'short', year: 'numeric',
+                                            hour: '2-digit', minute: '2-digit'
+                                        }));
+                                        setShowDateModal(false);
+                                    }}
                                 >
-                                    <Text style={styles.modalDoneText}>Set Date & Time</Text>
+                                    <Text style={styles.modalConfirmText}>SET DATE & TIME</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -366,7 +361,9 @@ export default function AddTransactionScreen({ route, navigation }) {
                         onPress={handleConfirm}
                     >
                         <Ionicons name="checkmark" size={20} color={colors.WHITE} />
-                        <Text style={styles.confirmText}>{editTransaction ? 'Update' : 'Confirm'}</Text>
+                        <Text style={styles.confirmText}>
+                            {editTransaction ? 'Update' : 'Confirm'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
 
@@ -588,7 +585,6 @@ const getStyles = (colors) => StyleSheet.create({
     modalTitle: {
         fontSize: 18,
         fontWeight: 'bold',
-        marginBottom: 20,
         color: colors.TEXT_PRIMARY,
     },
     noteInputBox: {

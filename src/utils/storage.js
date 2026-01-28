@@ -398,6 +398,7 @@ export const getUserProfile = async () => {
             accountNumber: '',
             ifsc: '',
             upiIds: [],
+            profileImage: null,
             qrCode: null
         };
     } catch (error) {

@@ -1,6 +1,6 @@
 // Ledger Card Component - Premium Summary View
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 
@@ -25,9 +25,13 @@ export const LedgerCard = React.memo(function LedgerCard({ ledger, onPress, onLo
         >
             <View style={styles.leftContent}>
                 <View style={[styles.avatar, { backgroundColor: '#BBDEFB' }]}>
-                    <Text style={[styles.avatarText, { color: '#1976D2' }]}>
-                        {ledger.name.charAt(0).toUpperCase()}
-                    </Text>
+                    {ledger.profileImage ? (
+                        <Image source={{ uri: ledger.profileImage }} style={styles.avatarImage} />
+                    ) : (
+                        <Text style={[styles.avatarText, { color: '#1976D2' }]}>
+                            {ledger.name.charAt(0).toUpperCase()}
+                        </Text>
+                    )}
                     <View style={styles.statusDot}>
                         <MaterialCommunityIcons name="whatsapp" size={10} color="#FFF" />
                     </View>
@@ -92,6 +96,11 @@ const getStyles = (colors) => StyleSheet.create({
     avatarText: {
         fontSize: 20,
         fontWeight: 'bold',
+    },
+    avatarImage: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 24,
     },
     infoContainer: {
         flex: 1,
