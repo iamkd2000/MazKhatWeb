@@ -16,6 +16,7 @@ export default function InsightsScreen({ navigation }) {
     const [monthlyData, setMonthlyData] = useState([]);
     const [expenseTrend, setExpenseTrend] = useState([]);
     const [expenseCategories, setExpenseCategories] = useState([]);
+    const [customerBalances, setCustomerBalances] = useState([]);
     const [stats, setStats] = useState({ totalGiven: 0, totalGot: 0, topCustomer: 'None', avgSpend: 0 });
     const [loading, setLoading] = useState(true);
 
@@ -85,9 +86,21 @@ export default function InsightsScreen({ navigation }) {
             color: catColors[idx % catColors.length]
         })).sort((a, b) => b.value - a.value).slice(0, 5);
 
+        // 3. Customer-wise Balance (Top 5)
+        const custData = ledgers
+            .filter(l => l.balance !== 0)
+            .map(l => ({
+                label: l.name.length > 8 ? l.name.substring(0, 8) + '..' : l.name,
+                v1: l.balance > 0 ? l.balance : 0, // Give (Debit)
+                v2: l.balance < 0 ? Math.abs(l.balance) : 0 // Got (Credit)
+            }))
+            .sort((a, b) => (b.v1 + b.v2) - (a.v1 + a.v2))
+            .slice(0, 5);
+
         setMonthlyData(months.map(m => trends[m]));
         setExpenseTrend(months.map(m => spendTrends[m]));
         setExpenseCategories(aggregatedCats);
+        setCustomerBalances(custData);
         setStats({
             totalGiven,
             totalGot,
@@ -125,16 +138,19 @@ export default function InsightsScreen({ navigation }) {
                     />
                 </View>
 
-                {/* Summary Info Row */}
-                <View style={styles.statsRow}>
-                    <View style={[styles.statBox, { backgroundColor: isDark ? '#2C1B1B' : '#FFEBEE' }]}>
-                        <Text style={[styles.statValue, { color: colors.DEBIT_RED }]}>₹{stats.totalGiven.toLocaleString()}</Text>
-                        <Text style={styles.statLabel}>Total Given</Text>
+                {/* Customer-wise Balance Graph */}
+                <View style={styles.card}>
+                    <View style={styles.cardHeader}>
+                        <Text style={styles.cardTitle}>Customer Balances</Text>
+                        <Text style={styles.cardSub}>Top 5 Customers by Dues</Text>
                     </View>
-                    <View style={[styles.statBox, { backgroundColor: isDark ? '#1B2C26' : '#E8F5E9' }]}>
-                        <Text style={[styles.statValue, { color: colors.CREDIT_GREEN }]}>₹{stats.totalGot.toLocaleString()}</Text>
-                        <Text style={styles.statLabel}>Total Got</Text>
-                    </View>
+                    <SimpleBarChart
+                        data={customerBalances}
+                        labels={['You Give', 'You Got']}
+                        color1={colors.DEBIT_RED}
+                        color2={colors.CREDIT_GREEN}
+                    />
+                    {customerBalances.length === 0 && <Text style={styles.emptyText}>No customer balances to display.</Text>}
                 </View>
 
                 {/* Spending Trend Graph Section */}
@@ -178,7 +194,7 @@ export default function InsightsScreen({ navigation }) {
 
                 <View style={{ height: 40 }} />
             </ScrollView>
-        </SafeAreaView>
+        </SafeAreaView >
     );
 }
 

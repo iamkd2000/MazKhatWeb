@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, TextInput, Modal, Platform, SafeAreaView, StatusBar, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, TextInput, Modal, Platform, SafeAreaView, StatusBar, Image, ScrollView } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { getAllLedgers, saveLedger, fetchFromFirebase, deleteLedger, clearAllData, syncAllToFirebase, getExpenses, saveExpense, deleteExpense, fetchExpensesFromFirebase, getCategories, fetchCategoriesFromFirebase, getBackupSettings, getUserProfile } from '../utils/storage';
@@ -7,7 +7,7 @@ import { exportDataToBackup, importDataFromBackup } from '../utils/backup';
 import { signOut } from 'firebase/auth';
 import { auth } from '../../firebase';
 import { generateLedgerPDF } from '../utils/pdfGenerator';
-import { generateId } from '../utils/calculations';
+import { generateId, evaluateMathExpression } from '../utils/calculations';
 import { LedgerCard } from '../components/LedgerCard';
 import CategoryManager from '../components/CategoryManager';
 import SecurityVerifyModal from '../components/SecurityVerifyModal';
@@ -35,14 +35,23 @@ export default function HomeScreen({ navigation }) {
     const [showCategoryManager, setShowCategoryManager] = useState(false);
     const [selectedLedger, setSelectedLedger] = useState(null);
     const [newLedgerName, setNewLedgerName] = useState('');
-    const [expenseData, setExpenseData] = useState({ title: '', amount: '', category: 'Food' });
+    const [expenseData, setExpenseData] = useState({ title: '', amount: '', category: 'Food', date: new Date().toISOString() });
     const [expenseSortBy, setExpenseSortBy] = useState('date_desc'); // date_desc, date_asc, amount_desc, amount_asc
     const [customerSortBy, setCustomerSortBy] = useState('recent'); // recent, oldest, balance_desc, balance_asc
     const [savingExpense, setSavingExpense] = useState(false);
+    const [showExpenseMenu, setShowExpenseMenu] = useState(false);
+    const [selectedExpense, setSelectedExpense] = useState(null);
     const [showSecurityModal, setShowSecurityModal] = useState(false);
     const [backupEnabled, setBackupEnabled] = useState(false);
     const [lastSync, setLastSync] = useState(null);
     const [userProfile, setUserProfile] = useState(null);
+    const [filterType, setFilterType] = useState('this_month'); // 'this_month', 'last_month', 'last_30', 'all', 'custom'
+    const [customRange, setCustomRange] = useState({ start: null, end: null });
+    const [showRangeModal, setShowRangeModal] = useState(false);
+    const [isEditingExpense, setIsEditingExpense] = useState(false);
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [datePickerType, setDatePickerType] = useState('expense'); // 'expense', 'start', 'end'
+    const [tempDate, setTempDate] = useState(new Date());
 
     const showAlert = (title, message) => {
         if (Platform.OS === 'web') {
@@ -52,8 +61,8 @@ export default function HomeScreen({ navigation }) {
         }
     };
 
-    // Sync cooldown: only auto-sync if more than 5 minutes since last sync
-    const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+    // Sync cooldown: reduced for better responsiveness
+    const SYNC_COOLDOWN_MS = 30 * 1000; // 30 seconds instead of 5 minutes
 
     const loadData = useCallback(async () => {
         setRefreshing(true);
@@ -202,6 +211,39 @@ export default function HomeScreen({ navigation }) {
     const sortedExpenses = useMemo(() => {
         let result = [...expenses];
 
+        // Advanced Filtering Logic
+        const now = new Date();
+        const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(now.getDate() - 30);
+
+        if (filterType !== 'all') {
+            result = result.filter(e => {
+                const expenseDate = new Date(e.date);
+                switch (filterType) {
+                    case 'this_month':
+                        return expenseDate >= startOfThisMonth;
+                    case 'last_month':
+                        return expenseDate >= startOfLastMonth && expenseDate <= endOfLastMonth;
+                    case 'last_30':
+                        return expenseDate >= thirtyDaysAgo;
+                    case 'custom':
+                        if (customRange.start && customRange.end) {
+                            const start = new Date(customRange.start);
+                            start.setHours(0, 0, 0, 0);
+                            const end = new Date(customRange.end);
+                            end.setHours(23, 59, 59, 999);
+                            return expenseDate >= start && expenseDate <= end;
+                        }
+                        return true;
+                    default:
+                        return true;
+                }
+            });
+        }
+
         // Sorting Logic
         result.sort((a, b) => {
             let comparison = 0;
@@ -231,7 +273,7 @@ export default function HomeScreen({ navigation }) {
         }
 
         return result;
-    }, [expenses, expenseSortBy, searchQuery]);
+    }, [expenses, expenseSortBy, searchQuery, filterType, customRange]);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -275,17 +317,18 @@ export default function HomeScreen({ navigation }) {
         }
         setSavingExpense(true);
         try {
-            const newExpense = {
+            const expenseToSave = {
                 ...expenseData,
-                id: generateId(),
-                amount: parseFloat(expenseData.amount),
-                date: new Date().toISOString(),
+                id: isEditingExpense ? expenseData.id : generateId(),
+                amount: evaluateMathExpression(expenseData.amount.toString()),
+                date: expenseData.date,
             };
-            await saveExpense(newExpense);
+            await saveExpense(expenseToSave);
             await loadData();
-            setExpenseData({ ...expenseData, title: '', amount: '' });
+            setExpenseData({ title: '', amount: '', category: 'Food', date: new Date().toISOString() });
             setShowOtherInput(false);
             setShowExpenseModal(false);
+            setIsEditingExpense(false);
         } finally {
             setSavingExpense(false);
         }
@@ -296,18 +339,39 @@ export default function HomeScreen({ navigation }) {
     const handleLedgerDelete = async () => {
         if (!selectedLedger) return;
         setShowMenuModal(false);
+        setDeletingType('ledger');
         setShowSecurityModal(true);
     };
 
-    const confirmLedgerDelete = async () => {
+    const handleExpenseDelete = async () => {
+        if (!selectedExpense) return;
+        setShowExpenseMenu(false);
+        setDeletingType('expense');
+        setShowSecurityModal(true);
+    };
+
+    const [deletingType, setDeletingType] = useState(null); // 'ledger' or 'expense'
+
+    const confirmDelete = async () => {
         setShowSecurityModal(false);
-        const success = await deleteLedger(selectedLedger.id);
-        if (success) {
-            await loadData();
-            setSelectedLedger(null);
-        } else {
-            showAlert('Error', 'Failed to delete customer');
+        if (deletingType === 'ledger') {
+            const success = await deleteLedger(selectedLedger.id);
+            if (success) {
+                await loadData();
+                setSelectedLedger(null);
+            } else {
+                showAlert('Error', 'Failed to delete customer');
+            }
+        } else if (deletingType === 'expense') {
+            const success = await deleteExpense(selectedExpense.id);
+            if (success) {
+                await loadData();
+                setSelectedExpense(null);
+            } else {
+                showAlert('Error', 'Failed to delete expense');
+            }
         }
+        setDeletingType(null);
     };
 
 
@@ -319,6 +383,100 @@ export default function HomeScreen({ navigation }) {
         } else {
             // Mobile linking would go here
         }
+    };
+
+    const renderDatePicker = () => {
+        const days = Array.from({ length: 31 }, (_, i) => i + 1);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const currentYear = new Date().getFullYear();
+        const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
+
+        const handleDateSelect = (day, monthIdx, year) => {
+            const newDate = new Date(year, monthIdx, day);
+            if (datePickerType === 'expense') {
+                setExpenseData({ ...expenseData, date: newDate.toISOString() });
+            } else if (datePickerType === 'start') {
+                setCustomRange({ ...customRange, start: newDate });
+            } else if (datePickerType === 'end') {
+                setCustomRange({ ...customRange, end: newDate });
+            }
+            setShowDatePicker(false);
+        };
+
+        return (
+            <Modal visible={showDatePicker} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.pickerModalContent}>
+                        <View style={styles.pickerHeader}>
+                            <Text style={styles.pickerTitle}>Select Date</Text>
+                            <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                                <Ionicons name="close" size={24} color={colors.TEXT_PRIMARY} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.pickerBody}>
+                            {/* Simple Column Selection for High Efficiency */}
+                            <ScrollView style={styles.pickerColumn} showsVerticalScrollIndicator={false}>
+                                {days.map(d => (
+                                    <TouchableOpacity
+                                        key={d}
+                                        style={[styles.pickerItem, tempDate.getDate() === d && styles.activePickerItem]}
+                                        onPress={() => {
+                                            const d2 = new Date(tempDate);
+                                            d2.setDate(d);
+                                            setTempDate(d2);
+                                        }}
+                                    >
+                                        <Text style={[styles.pickerItemText, tempDate.getDate() === d && styles.activePickerItemText]}>{d}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+
+                            <ScrollView style={styles.pickerColumn} showsVerticalScrollIndicator={false}>
+                                {months.map((m, idx) => (
+                                    <TouchableOpacity
+                                        key={m}
+                                        style={[styles.pickerItem, tempDate.getMonth() === idx && styles.activePickerItem]}
+                                        onPress={() => {
+                                            const d2 = new Date(tempDate);
+                                            d2.setMonth(idx);
+                                            setTempDate(d2);
+                                        }}
+                                    >
+                                        <Text style={[styles.pickerItemText, tempDate.getMonth() === idx && styles.activePickerItemText]}>{m}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+
+                            <ScrollView style={styles.pickerColumn} showsVerticalScrollIndicator={false}>
+                                {years.map(y => (
+                                    <TouchableOpacity
+                                        key={y}
+                                        style={[styles.pickerItem, tempDate.getFullYear() === y && styles.activePickerItem]}
+                                        onPress={() => {
+                                            const d2 = new Date(tempDate);
+                                            d2.setFullYear(y);
+                                            setTempDate(d2);
+                                        }}
+                                    >
+                                        <Text style={[styles.pickerItemText, tempDate.getFullYear() === y && styles.activePickerItemText]}>{y}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </View>
+
+                        <View style={styles.pickerFooter}>
+                            <TouchableOpacity
+                                style={[styles.modalBtn, styles.applyBtn]}
+                                onPress={() => handleDateSelect(tempDate.getDate(), tempDate.getMonth(), tempDate.getFullYear())}
+                            >
+                                <Text style={styles.applyBtnText}>CONFIRM</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+        );
     };
 
     return (
@@ -503,42 +661,173 @@ export default function HomeScreen({ navigation }) {
             </View>
 
             {/* 5. Summary Card (Dynamic) */}
-            <TouchableOpacity style={styles.netBalanceCard}>
-                <View style={styles.netBalanceLeft}>
-                    <Text style={styles.netBalanceLabel}>{activeTab === 'customer' ? 'Net Balance' : 'Total Expenses'}</Text>
-                    <View style={styles.accountCount}>
-                        <Ionicons
-                            name={activeTab === 'customer' ? "people-outline" : "receipt-outline"}
-                            size={14}
-                            color={colors.TEXT_SECONDARY}
-                        />
-                        <Text style={styles.accountCountText}>
-                            {activeTab === 'customer' ? `${ledgers.length} Accounts` : `${expenses.length} Items`}
-                        </Text>
+            <TouchableOpacity
+                style={[styles.netBalanceCard, { flexDirection: 'column', alignItems: 'stretch' }]}
+                onPress={() => navigation.navigate('Insights')}
+            >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: activeTab === 'customer' ? 1 : 0, borderBottomColor: colors.BORDER, paddingBottom: activeTab === 'customer' ? 10 : 0, marginBottom: activeTab === 'customer' ? 10 : 0 }}>
+                    <View style={styles.netBalanceLeft}>
+                        <Text style={styles.netBalanceLabel}>{activeTab === 'customer' ? 'Net Balance' : 'Total Expenses'}</Text>
+                        <View style={styles.accountCount}>
+                            <Ionicons
+                                name={activeTab === 'customer' ? "people-outline" : "receipt-outline"}
+                                size={14}
+                                color={colors.TEXT_SECONDARY}
+                            />
+                            <Text style={styles.accountCountText}>
+                                {activeTab === 'customer' ? `${ledgers.length} Accounts` : `${expenses.length} Items`}
+                            </Text>
+                        </View>
                     </View>
-                </View>
-                <View style={styles.netBalanceRight}>
-                    <View style={styles.balanceInfo}>
-                        <Text style={[styles.netBalanceValue, {
-                            color: activeTab === 'customer'
-                                ? (totals.give >= totals.receive ? colors.DEBIT_RED : colors.CREDIT_GREEN)
-                                : colors.DEBIT_RED
-                        }]}>
-                            ₹{activeTab === 'customer'
-                                ? Math.abs(totals.give - totals.receive).toLocaleString()
-                                : expenses.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()
+                    <View style={styles.netBalanceRight}>
+                        <View style={styles.balanceInfo}>
+                            <Text style={[styles.netBalanceValue, {
+                                color: activeTab === 'customer'
+                                    ? (totals.give >= totals.receive ? colors.DEBIT_RED : colors.CREDIT_GREEN)
+                                    : colors.DEBIT_RED
+                            }]}>
+                                ₹{activeTab === 'customer'
+                                    ? Math.abs(totals.give - totals.receive).toLocaleString()
+                                    : expenses.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()
+                                }
+                            </Text>
+                            <Ionicons name="chevron-forward" size={18} color={colors.TEXT_LIGHT} />
+                        </View>
+                        <Text style={styles.balanceSubText}>
+                            {activeTab === 'customer'
+                                ? (totals.give >= totals.receive ? 'Total You Give' : 'Total You Get')
+                                : `Most Used: ${totals.mostUsed}`
                             }
                         </Text>
-                        <Ionicons name="chevron-forward" size={18} color={colors.TEXT_LIGHT} />
                     </View>
-                    <Text style={styles.balanceSubText}>
-                        {activeTab === 'customer'
-                            ? (totals.give >= totals.receive ? 'You Give' : 'You Receive')
-                            : `Most Used: ${totals.mostUsed}`
-                        }
-                    </Text>
                 </View>
+
+                {activeTab === 'customer' && (
+                    <View style={styles.summaryBreakdown}>
+                        <View style={styles.breakdownItem}>
+                            <Text style={styles.breakdownLabel}>YOU GIVE</Text>
+                            <Text style={[styles.breakdownValue, { color: colors.DEBIT_RED }]}>₹{totals.give.toLocaleString()}</Text>
+                        </View>
+                        <View style={styles.breakdownDivider} />
+                        <View style={styles.breakdownItem}>
+                            <Text style={styles.breakdownLabel}>YOU'LL GET</Text>
+                            <Text style={[styles.breakdownValue, { color: colors.CREDIT_GREEN }]}>₹{totals.receive.toLocaleString()}</Text>
+                        </View>
+                    </View>
+                )}
             </TouchableOpacity>
+
+            {activeTab === 'expenses' && (
+                <View style={styles.filterContainer}>
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.filterScroll}
+                    >
+                        {[
+                            { id: 'this_month', label: 'This Month' },
+                            { id: 'last_month', label: 'Last Month' },
+                            { id: 'last_30', label: 'Last 30 Days' },
+                            { id: 'all', label: 'All Expenses' },
+                            { id: 'custom', label: 'Custom Range' },
+                        ].map((item) => (
+                            <TouchableOpacity
+                                key={item.id}
+                                style={[
+                                    styles.filterBtn,
+                                    filterType === item.id && styles.activeFilterBtn
+                                ]}
+                                onPress={() => {
+                                    if (item.id === 'custom') {
+                                        setShowRangeModal(true);
+                                    } else {
+                                        setFilterType(item.id);
+                                    }
+                                }}
+                            >
+                                <Text style={[
+                                    styles.filterBtnText,
+                                    filterType === item.id && styles.activeFilterBtnText
+                                ]}>{item.label}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                </View>
+            )}
+
+            {/* Range Selection Modal */}
+            <Modal
+                visible={showRangeModal}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={() => setShowRangeModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Select Custom Range</Text>
+
+                        <View style={styles.rangeInputRow}>
+                            <TouchableOpacity
+                                style={[styles.rangeSelector, { flex: 1 }]}
+                                onPress={() => {
+                                    setDatePickerType('start');
+                                    setTempDate(customRange.start ? new Date(customRange.start) : new Date());
+                                    setShowDatePicker(true);
+                                }}
+                            >
+                                <Text style={styles.inputLabel}>Start Date</Text>
+                                <View style={styles.rangeValueContainer}>
+                                    <Ionicons name="calendar-outline" size={16} color={colors.PRIMARY} />
+                                    <Text style={styles.rangeValue}>
+                                        {customRange.start ? new Date(customRange.start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : 'Select'}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                            <View style={{ width: 15 }} />
+                            <TouchableOpacity
+                                style={[styles.rangeSelector, { flex: 1 }]}
+                                onPress={() => {
+                                    setDatePickerType('end');
+                                    setTempDate(customRange.end ? new Date(customRange.end) : new Date());
+                                    setShowDatePicker(true);
+                                }}
+                            >
+                                <Text style={styles.inputLabel}>End Date</Text>
+                                <View style={styles.rangeValueContainer}>
+                                    <Ionicons name="calendar-outline" size={16} color={colors.PRIMARY} />
+                                    <Text style={styles.rangeValue}>
+                                        {customRange.end ? new Date(customRange.end).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : 'Select'}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={styles.helperText}>Format: YYYY-MM-DD (e.g., 2026-01-01)</Text>
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity
+                                onPress={() => setShowRangeModal(false)}
+                                style={styles.modalBtn}
+                            >
+                                <Text style={styles.cancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    if (customRange.start && customRange.end) {
+                                        setFilterType('custom');
+                                        setShowRangeModal(false);
+                                    } else {
+                                        showAlert('Error', 'Please select both start and end dates');
+                                    }
+                                }}
+                                style={[styles.modalBtn, styles.applyBtn]}
+                            >
+                                <Text style={styles.applyBtnText}>Apply Filter</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
             <FlatList
                 style={[styles.list, { flex: 1 }]}
@@ -561,20 +850,8 @@ export default function HomeScreen({ navigation }) {
                         <TouchableOpacity
                             style={styles.expenseItem}
                             onLongPress={() => {
-                                if (Platform.OS === 'web') {
-                                    if (window.confirm('Delete this expense?')) {
-                                        deleteExpense(item.id).then(loadData);
-                                    }
-                                } else {
-                                    Alert.alert(
-                                        'Delete Expense',
-                                        'Are you sure you want to delete this expense?',
-                                        [
-                                            { text: 'Cancel', style: 'cancel' },
-                                            { text: 'Delete', style: 'destructive', onPress: () => deleteExpense(item.id).then(loadData) }
-                                        ]
-                                    );
-                                }
+                                setSelectedExpense(item);
+                                setShowExpenseMenu(true);
                             }}
                         >
                             <View style={styles.expenseLeft}>
@@ -615,9 +892,12 @@ export default function HomeScreen({ navigation }) {
             {/* Security Verification Modal */}
             <SecurityVerifyModal
                 visible={showSecurityModal}
-                title={`Delete ${selectedLedger?.name}`}
-                onSuccess={confirmLedgerDelete}
-                onCancel={() => setShowSecurityModal(false)}
+                title={deletingType === 'ledger' ? `Delete ${selectedLedger?.name}` : `Delete ${selectedExpense?.title}`}
+                onSuccess={confirmDelete}
+                onCancel={() => {
+                    setShowSecurityModal(false);
+                    setDeletingType(null);
+                }}
             />
 
             {/* Bottom Navigation */}
@@ -664,11 +944,12 @@ export default function HomeScreen({ navigation }) {
                 onRequestClose={() => {
                     setShowExpenseModal(false);
                     setShowOtherInput(false);
+                    setIsEditingExpense(false);
                 }}
             >
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Add Daily Expense</Text>
+                        <Text style={styles.modalTitle}>{isEditingExpense ? 'Edit Expense' : 'Add Daily Expense'}</Text>
                         <TextInput
                             style={styles.input}
                             placeholder="What did you buy?"
@@ -684,6 +965,22 @@ export default function HomeScreen({ navigation }) {
                             value={expenseData.amount}
                             onChangeText={(text) => setExpenseData({ ...expenseData, amount: text })}
                         />
+
+                        <TouchableOpacity
+                            style={styles.dateSelector}
+                            onPress={() => {
+                                setDatePickerType('expense');
+                                setTempDate(new Date(expenseData.date));
+                                setShowDatePicker(true);
+                            }}
+                        >
+                            <Ionicons name="calendar-outline" size={20} color={colors.PRIMARY} />
+                            <Text style={styles.dateSelectorLabel}>Transaction Date:</Text>
+                            <Text style={styles.dateSelectorValue}>
+                                {new Date(expenseData.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </Text>
+                            <Ionicons name="chevron-forward" size={18} color={colors.TEXT_LIGHT} />
+                        </TouchableOpacity>
 
                         <View style={styles.categoryHeader}>
                             <Text style={styles.sectionLabel}>Category</Text>
@@ -740,6 +1037,7 @@ export default function HomeScreen({ navigation }) {
                                 onPress={() => {
                                     setShowExpenseModal(false);
                                     setShowOtherInput(false);
+                                    setIsEditingExpense(false);
                                 }}
                                 style={styles.modalBtn}
                             >
@@ -1020,7 +1318,60 @@ All Rights Reserved.
                 categories={categories}
                 onUpdate={setCategories}
             />
-        </SafeAreaView>
+            {/* Expense Context Menu Modal */}
+            <Modal
+                visible={showExpenseMenu}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowExpenseMenu(false)}
+            >
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowExpenseMenu(false)}
+                >
+                    <View style={styles.menuContent}>
+                        <View style={styles.menuHeader}>
+                            <Text style={styles.menuTitle}>{selectedExpense?.title}</Text>
+                            <Text style={styles.menuSubTitle}>₹{selectedExpense?.amount.toLocaleString()}</Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={() => {
+                                setExpenseData({ ...selectedExpense });
+                                setIsEditingExpense(true);
+                                setShowExpenseMenu(false);
+                                setShowExpenseModal(true);
+                            }}
+                        >
+                            <View style={[styles.menuIcon, { backgroundColor: colors.PRIMARY + '15' }]}>
+                                <Ionicons name="pencil-outline" size={20} color={colors.PRIMARY} />
+                            </View>
+                            <Text style={styles.menuText}>Edit Expense</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={handleExpenseDelete}
+                        >
+                            <View style={[styles.menuIcon, { backgroundColor: '#FFEBEE' }]}>
+                                <Ionicons name="trash-outline" size={20} color={colors.DEBIT_RED} />
+                            </View>
+                            <Text style={[styles.menuText, { color: colors.DEBIT_RED }]}>Delete Expense</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.menuCancel}
+                            onPress={() => setShowExpenseMenu(false)}
+                        >
+                            <Text style={styles.cancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+            {renderDatePicker()}
+        </SafeAreaView >
     );
 }
 
@@ -1197,6 +1548,30 @@ const getStyles = (colors) => StyleSheet.create({
         color: colors.TEXT_LIGHT,
         textAlign: 'right',
         marginTop: 2,
+    },
+    summaryBreakdown: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingTop: 5,
+    },
+    breakdownItem: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    breakdownLabel: {
+        fontSize: 9,
+        fontWeight: 'bold',
+        color: colors.TEXT_SECONDARY,
+        marginBottom: 2,
+    },
+    breakdownValue: {
+        fontSize: 14,
+        fontWeight: 'bold',
+    },
+    breakdownDivider: {
+        width: 1,
+        height: 30,
+        backgroundColor: colors.BORDER,
     },
     fab: {
         position: Platform.OS === 'web' ? 'fixed' : 'absolute',
@@ -1533,5 +1908,206 @@ const getStyles = (colors) => StyleSheet.create({
         fontSize: 9,
         color: colors.TEXT_SECONDARY,
         marginTop: -1,
+    },
+    menuContent: {
+        backgroundColor: colors.CARD_BG,
+        borderTopLeftRadius: 25,
+        borderTopRightRadius: 25,
+        padding: 24,
+        position: 'absolute',
+        bottom: 0,
+        width: '100%',
+        elevation: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+    },
+    menuHeader: {
+        marginBottom: 25,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.BORDER,
+        paddingBottom: 15,
+    },
+    menuTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: colors.TEXT_PRIMARY,
+    },
+    menuSubTitle: {
+        fontSize: 14,
+        color: colors.TEXT_SECONDARY,
+        marginTop: 4,
+    },
+    menuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 15,
+    },
+    menuIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 15,
+    },
+    menuText: {
+        fontSize: 16,
+        fontWeight: '500',
+    },
+    filterContainer: {
+        backgroundColor: colors.BACKGROUND,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.BORDER,
+    },
+    filterScroll: {
+        paddingHorizontal: 15,
+    },
+    filterBtn: {
+        paddingHorizontal: 18,
+        paddingVertical: 10,
+        borderRadius: 25,
+        marginRight: 10,
+        backgroundColor: colors.CARD_BG,
+        borderWidth: 1,
+        borderColor: colors.BORDER,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+    },
+    activeFilterBtn: {
+        backgroundColor: colors.PRIMARY,
+        borderColor: colors.PRIMARY,
+    },
+    filterBtnText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.TEXT_SECONDARY,
+    },
+    activeFilterBtnText: {
+        color: colors.WHITE,
+    },
+    rangeInputRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    inputLabel: {
+        fontSize: 12,
+        color: colors.TEXT_SECONDARY,
+        marginBottom: 5,
+        fontWeight: 'bold',
+    },
+    applyBtn: {
+        backgroundColor: colors.PRIMARY,
+        borderRadius: 8,
+        marginLeft: 10,
+    },
+    applyBtnText: {
+        color: colors.WHITE,
+        fontWeight: 'bold',
+    },
+    helperText: {
+        fontSize: 11,
+        color: colors.TEXT_SECONDARY,
+        marginBottom: 20,
+        fontStyle: 'italic',
+    },
+    dateSelector: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.BORDER,
+        marginBottom: 20,
+    },
+    dateSelectorLabel: {
+        fontSize: 14,
+        color: colors.TEXT_SECONDARY,
+        marginLeft: 10,
+        flex: 1,
+    },
+    dateSelectorValue: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: colors.PRIMARY,
+        marginRight: 8,
+    },
+    rangeSelector: {
+        backgroundColor: colors.isDark ? '#2C2C2C' : '#F5F5F5',
+        padding: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.BORDER,
+    },
+    rangeValueContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+    },
+    rangeValue: {
+        fontSize: 13,
+        fontWeight: 'bold',
+        color: colors.TEXT_PRIMARY,
+        marginLeft: 6,
+    },
+    pickerModalContent: {
+        backgroundColor: colors.CARD_BG,
+        width: '90%',
+        borderRadius: 20,
+        padding: 20,
+        elevation: 10,
+    },
+    pickerHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.BORDER,
+        paddingBottom: 10,
+    },
+    pickerTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: colors.TEXT_PRIMARY,
+    },
+    pickerBody: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        height: 200,
+    },
+    pickerColumn: {
+        flex: 1,
+    },
+    pickerItem: {
+        paddingVertical: 10,
+        alignItems: 'center',
+        borderRadius: 8,
+    },
+    activePickerItem: {
+        backgroundColor: colors.PRIMARY + '20',
+        borderWidth: 1,
+        borderColor: colors.PRIMARY,
+    },
+    pickerItemText: {
+        fontSize: 16,
+        color: colors.TEXT_SECONDARY,
+    },
+    activePickerItemText: {
+        color: colors.PRIMARY,
+        fontWeight: 'bold',
+    },
+    pickerFooter: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        marginTop: 20,
+        borderTopWidth: 1,
+        borderTopColor: colors.BORDER,
+        paddingTop: 15,
     },
 });

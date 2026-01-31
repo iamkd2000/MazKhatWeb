@@ -28,7 +28,8 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT"
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -39,6 +40,13 @@
         "expo-local-authentication",
         {
           "faceIDPermission": "Allow MazKhat to use Face ID for secure access"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow MazKhat to access your photos",
+          "cameraPermission": "Allow MazKhat to use your camera for bills and profile pictures"
         }
       ]
     ],

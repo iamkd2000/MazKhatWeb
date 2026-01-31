@@ -34,8 +34,16 @@ export const isBiometricEnrolled = async () => {
  */
 export const isBiometricAvailable = async () => {
     try {
+        const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
         const hasHardware = await hasBiometricHardware();
-        if (!hasHardware) return false;
+
+        // On Android, Face detection might be reported as FACIAL_RECOGNITION 
+        // or just generically as BIOMETRIC.
+        const isFaceSupported = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION);
+        const isGenericBiometric = types.includes(LocalAuthentication.AuthenticationType.BIOMETRIC);
+
+        // We prioritize Face, but on some Android 12 devices it might only report BIOMETRIC
+        if (!hasHardware || (!isFaceSupported && !isGenericBiometric && Platform.OS !== 'android')) return false;
 
         const isEnrolled = await isBiometricEnrolled();
         const enrolledLevel = await LocalAuthentication.getEnrolledLevelAsync();
@@ -49,19 +57,24 @@ export const isBiometricAvailable = async () => {
 };
 
 /**
- * Returns the type of biometric authentication supported ('Face', 'Fingerprint', or 'Biometric').
+ * Returns the type of biometric authentication supported (restricted to 'Face' or 'None').
  */
 export const getBiometricType = async () => {
     try {
         const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
         if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
             return 'Face';
-        } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+        }
+        if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
             return 'Fingerprint';
         }
-        return 'Biometric';
+        // Fallback for Android devices that don't distinguish but have Face/Fingerprint
+        if (Platform.OS === 'android' && types.length > 0) {
+            return 'Biometric';
+        }
+        return 'None';
     } catch (error) {
-        return 'Biometric';
+        return 'None';
     }
 };
 

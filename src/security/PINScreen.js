@@ -223,7 +223,7 @@ export default function PINScreen({ onSuccess, mode = 'verify' }) {
                         style={styles.key}
                         onPress={handleBiometric}
                     >
-                        <Text style={styles.keyText}>{bioType === 'Face' ? '👤' : '👆'}</Text>
+                        <Text style={styles.keyText}>{bioType === 'Face' ? '👤' : '🖐️'}</Text>
                     </TouchableOpacity>
                 ) : (
                     <View style={styles.key} />

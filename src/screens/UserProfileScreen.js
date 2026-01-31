@@ -15,6 +15,7 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { getUserProfile, saveUserProfile, getCategories, saveCategories, clearAllData, saveUserProfileToFirebase, getUserProfileFromFirebase, getBackupSettings, updateBackupSettings, syncAllToFirebase } from '../utils/storage';
+import { exportDataToBackup } from '../utils/backup';
 import { signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import { auth } from '../../firebase';
 import { LIGHT_COLORS as COLORS } from '../styles/colors';
@@ -359,29 +360,65 @@ export default function UserProfileScreen({ navigation }) {
 
     // Profile Image Picker
     const pickProfileImage = async () => {
-        try {
-            const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-            if (permissionResult.granted === false) {
-                Alert.alert('Permission Required', 'Please allow access to your photos to upload a profile picture.');
-                return;
+        const handleImageResult = (result) => {
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const imageUri = result.assets[0].uri;
+                setProfile({ ...profile, profileImage: imageUri });
             }
+        };
 
+        if (Platform.OS === 'web') {
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 allowsEditing: true,
                 aspect: [1, 1],
                 quality: 0.7,
             });
-
-            if (!result.canceled && result.assets && result.assets.length > 0) {
-                const imageUri = result.assets[0].uri;
-                setProfile({ ...profile, profileImage: imageUri });
-            }
-        } catch (error) {
-            console.error('Error picking image:', error);
-            Alert.alert('Error', 'Failed to pick image. Please try again.');
+            handleImageResult(result);
+            return;
         }
+
+        Alert.alert(
+            'Profile Picture',
+            'Select an option',
+            [
+                {
+                    text: 'Take Photo',
+                    onPress: async () => {
+                        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                        if (status !== 'granted') {
+                            Alert.alert('Permission Denied', 'Camera access is required.');
+                            return;
+                        }
+                        const result = await ImagePicker.launchCameraAsync({
+                            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                            allowsEditing: true,
+                            aspect: [1, 1],
+                            quality: 0.7,
+                        });
+                        handleImageResult(result);
+                    }
+                },
+                {
+                    text: 'Choose from Gallery',
+                    onPress: async () => {
+                        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                        if (status !== 'granted') {
+                            Alert.alert('Permission Denied', 'Media library access is required.');
+                            return;
+                        }
+                        const result = await ImagePicker.launchImageLibraryAsync({
+                            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                            allowsEditing: true,
+                            aspect: [1, 1],
+                            quality: 0.7,
+                        });
+                        handleImageResult(result);
+                    }
+                },
+                { text: 'Cancel', style: 'cancel' }
+            ]
+        );
     };
 
     return (
@@ -637,22 +674,22 @@ export default function UserProfileScreen({ navigation }) {
                         />
                     </View>
 
-                    {/* Biometric Toggle */}
+                    {/* Biometric Toggle - Dynamic Face/Fingerprint */}
                     <View style={[styles.securityRow, { marginTop: 15, borderTopWidth: 1, borderTopColor: colors.BORDER, paddingTop: 15 }]}>
                         <View style={styles.securityInfo}>
                             <MaterialCommunityIcons
-                                name={bioType === 'Face' ? "face-recognition" : "fingerprint"}
+                                name={bioType === 'Face' ? 'face-recognition' : 'fingerprint'}
                                 size={28}
                                 color={biometricSupported && pinEnabled ? colors.PRIMARY : (colors.isDark ? '#444' : '#BDBDBD')}
                             />
                             <View style={styles.securityTextGroup}>
                                 <Text style={[styles.securityLabel, (!biometricSupported || !pinEnabled) && { color: (colors.isDark ? '#777' : '#BDBDBD') }]}>
-                                    {bioType} ID Lock
+                                    {bioType === 'Face' ? 'Face ID Lock 👤' : (bioType === 'Fingerprint' ? 'Fingerprint Lock 🖐️' : 'Biometric Lock 🔐')}
                                 </Text>
                                 <Text style={styles.securitySub}>
                                     {!biometricSupported ?
-                                        (Platform.OS === 'web' ? 'Available on Mobile App 📱' : 'Hardware not detected') :
-                                        (!biometricEnrolled ? `No ${bioType} enrolled in device settings` : `Use ${bioType} to unlock`)
+                                        `${bioType} not supported on this device` :
+                                        (!biometricEnrolled ? `No ${bioType} enrolled in device settings` : `Use ${bioType} to unlock MaZaKhat`)
                                     }
                                 </Text>
                             </View>
@@ -688,29 +725,21 @@ export default function UserProfileScreen({ navigation }) {
 
                     <View style={[styles.securityRow, { marginTop: 15, borderTopWidth: 1, borderTopColor: colors.BORDER, paddingTop: 15 }]}>
                         <View style={styles.securityInfo}>
-                            <Ionicons name="time-outline" size={24} color={colors.TEXT_SECONDARY} />
+                            <Ionicons name="logo-google" size={24} color="#4285F4" />
                             <View style={styles.securityTextGroup}>
-                                <Text style={styles.securityLabel}>Last Synced</Text>
-                                <Text style={styles.securitySub}>
-                                    {backupSettings.lastSync
-                                        ? new Date(backupSettings.lastSync).toLocaleString()
-                                        : 'Never'
-                                    }
-                                </Text>
+                                <Text style={styles.securityLabel}>Drive Back-up</Text>
+                                <Text style={styles.securitySub}>Save data file to Google Drive</Text>
                             </View>
                         </View>
                         <TouchableOpacity
-                            style={[styles.syncNowBtn, syncingAll && { opacity: 0.5 }]}
-                            onPress={handleSyncNow}
-                            disabled={syncingAll}
+                            style={[styles.syncNowBtn, { borderColor: '#4285F4' }]}
+                            onPress={async () => {
+                                const result = await exportDataToBackup();
+                                if (result.success && Platform.OS === 'web') alert('Backup file downloaded!');
+                            }}
                         >
-                            <Ionicons
-                                name={syncingAll ? "sync" : "refresh"}
-                                size={18}
-                                color={colors.PRIMARY}
-                                style={syncingAll ? { transform: [{ rotate: '360deg' }] } : {}}
-                            />
-                            <Text style={styles.syncNowText}>{syncingAll ? 'Syncing...' : 'Sync Now'}</Text>
+                            <Ionicons name="share-outline" size={18} color="#4285F4" />
+                            <Text style={[styles.syncNowText, { color: '#4285F4' }]}>Export</Text>
                         </TouchableOpacity>
                     </View>
                 </View>

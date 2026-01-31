@@ -32,7 +32,13 @@ export const getAllLedgers = async () => {
     try {
         const key = getLedgersKey();
         const jsonValue = await AsyncStorage.getItem(key);
-        return jsonValue != null ? JSON.parse(jsonValue) : {};
+        if (jsonValue == null) return {};
+        try {
+            return JSON.parse(jsonValue);
+        } catch (e) {
+            console.error('Error parsing ledgers JSON:', e);
+            return {};
+        }
     } catch (error) {
         console.error('Error reading ledgers:', error);
         return {};
@@ -146,20 +152,12 @@ export const deleteTransaction = async (ledgerId, transactionId) => {
         allLedgers[ledgerId] = updatedLedger;
         await AsyncStorage.setItem(key, JSON.stringify(allLedgers));
 
-        // Delete from Firebase Firestore if auto-backup is enabled
+        // Sync to FirebaseFirestore if auto-backup is enabled
         const settings = await getBackupSettings();
         const user = auth.currentUser;
         if (user && settings.autoBackup) {
-            // 1. Delete the specific transaction doc
-            const txnRef = doc(db, 'users', user.uid, 'ledgers', ledgerId, 'transactions', transactionId);
-            await deleteDoc(txnRef);
-
-            // 2. Update the ledger doc (for balance sync)
-            const ledgerRef = doc(db, 'users', user.uid, 'ledgers', ledgerId);
-            await setDoc(ledgerRef, {
-                balance: newBalance,
-                updatedAt: new Date().toISOString()
-            }, { merge: true });
+            // Background sync of all data to ensure consistency after transaction deletion
+            syncAllToFirebase();
         }
 
         return true;
@@ -343,7 +341,13 @@ export const getBackupSettings = async () => {
             lastSync: null,
             syncStatus: 'idle' // idle, syncing, error
         };
-        return jsonValue != null ? { ...defaults, ...JSON.parse(jsonValue) } : defaults;
+        if (jsonValue == null) return defaults;
+        try {
+            return { ...defaults, ...JSON.parse(jsonValue) };
+        } catch (e) {
+            console.error('Error parsing backup settings JSON:', e);
+            return defaults;
+        }
     } catch (error) {
         console.error('Error reading backup settings:', error);
         return { autoBackup: false, lastSync: null, syncStatus: 'error' };
@@ -374,7 +378,12 @@ export const getUserProfile = async () => {
         // 1. Try Local Storage first
         const jsonValue = await AsyncStorage.getItem(key);
         if (jsonValue != null) {
-            return JSON.parse(jsonValue);
+            try {
+                return JSON.parse(jsonValue);
+            } catch (e) {
+                console.error('Error parsing profile JSON:', e);
+                // Continue to Firebase or return default
+            }
         }
 
         // 2. If not local and user logged in, try Firebase
@@ -445,7 +454,13 @@ export const getExpenses = async () => {
     try {
         const key = getExpensesKey();
         const jsonValue = await AsyncStorage.getItem(key);
-        return jsonValue != null ? JSON.parse(jsonValue) : [];
+        if (jsonValue == null) return [];
+        try {
+            return JSON.parse(jsonValue);
+        } catch (e) {
+            console.error('Error parsing expenses JSON:', e);
+            return [];
+        }
     } catch (error) {
         console.error('Error reading expenses:', error);
         return [];
@@ -535,7 +550,13 @@ export const getCategories = async () => {
     try {
         const key = getCategoriesKey();
         const jsonValue = await AsyncStorage.getItem(key);
-        if (jsonValue != null) return JSON.parse(jsonValue);
+        if (jsonValue != null) {
+            try {
+                return JSON.parse(jsonValue);
+            } catch (e) {
+                console.error('Error parsing categories JSON:', e);
+            }
+        }
 
         // Default categories if nothing stored
         return [

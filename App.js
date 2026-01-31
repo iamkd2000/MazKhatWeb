@@ -21,6 +21,7 @@ import PINScreen, { isPINEnabled } from './src/security/PINScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
 import SplashScreen from './src/screens/SplashScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
+import GlobalErrorBoundary from './src/components/GlobalErrorBoundary';
 
 // Theme Context
 import { ThemeProvider } from './src/context/ThemeContext';
@@ -214,14 +215,16 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      <ThemeProvider>
-        <AppContent
-          user={user}
-          pinRequired={pinRequired}
-          isAuthenticated={isAuthenticated}
-          handlePINSuccess={handlePINSuccess}
-        />
-      </ThemeProvider>
+      <GlobalErrorBoundary>
+        <ThemeProvider>
+          <AppContent
+            user={user}
+            pinRequired={pinRequired}
+            isAuthenticated={isAuthenticated}
+            handlePINSuccess={handlePINSuccess}
+          />
+        </ThemeProvider>
+      </GlobalErrorBoundary>
     </GestureHandlerRootView>
   );
 }

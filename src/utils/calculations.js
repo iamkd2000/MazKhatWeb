@@ -73,3 +73,30 @@ export const formatDate = (dateString) => {
     const year = date.getFullYear();
     return `${day}/${month}/${year}`;
 };
+/**
+ * Safely evaluate a mathematical expression string (e.g., "75+38+58")
+ * Supports +, -, *, /
+ * @param {string} expr - Expression string
+ * @returns {number} Evaluated result or original number
+ */
+export const evaluateMathExpression = (expr) => {
+    if (typeof expr !== 'string' || !expr.trim()) return 0;
+
+    // Remove all characters except digits, ., +, -, *, /
+    const cleanExpr = expr.replace(/[^0-9.+-/*]/g, '');
+
+    if (!cleanExpr) return 0;
+
+    try {
+        // Using Function constructor for a simple, self-contained evaluator.
+        // The regex above ensures we only pass safe mathematical characters.
+        // eslint-disable-next-line no-new-func
+        const result = new Function(`return ${cleanExpr}`)();
+        return isFinite(result) ? parseFloat(result.toFixed(2)) : 0;
+    } catch (e) {
+        console.warn('Evaluation error:', e);
+        // Fallback: try parsing as a single number
+        const singleNum = parseFloat(cleanExpr);
+        return isNaN(singleNum) ? 0 : singleNum;
+    }
+};

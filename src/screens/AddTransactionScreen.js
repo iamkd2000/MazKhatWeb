@@ -15,7 +15,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons, MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
 import { saveLedger } from '../utils/storage';
-import { calculateBalance, generateId } from '../utils/calculations';
+import { evaluateMathExpression, calculateBalance, generateId } from '../utils/calculations';
 import { useTheme } from '../context/ThemeContext';
 
 export default function AddTransactionScreen({ route, navigation }) {
@@ -81,13 +81,15 @@ export default function AddTransactionScreen({ route, navigation }) {
             setAmount(prev => prev.length > 1 ? prev.slice(0, -1) : '0');
         } else if (val === '.') {
             if (!amount.includes('.')) setAmount(prev => prev + '.');
+        } else if (['+', '-', '*', '/'].includes(val)) {
+            setAmount(prev => prev + val);
         } else {
             setAmount(prev => prev === '0' ? val : prev + val);
         }
     };
 
     const handleConfirm = async () => {
-        const numAmount = parseFloat(amount);
+        const numAmount = evaluateMathExpression(amount);
         if (numAmount <= 0) {
             if (Platform.OS === 'web') window.alert('Please enter a valid amount');
             return;
@@ -173,6 +175,9 @@ export default function AddTransactionScreen({ route, navigation }) {
                     <Text style={[styles.amountText, { color: amount === '0' ? colors.TEXT_LIGHT : colors.TEXT_PRIMARY }]}>
                         {amount}
                     </Text>
+                    {amount.match(/[+*/-]/) && (
+                        <Text style={styles.calculationPreview}>= ₹{evaluateMathExpression(amount)}</Text>
+                    )}
                     <View style={[styles.amountUnderline, { backgroundColor: primaryColor }]} />
                 </View>
 
@@ -193,11 +198,52 @@ export default function AddTransactionScreen({ route, navigation }) {
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.actionItem} onPress={async () => {
-                        const result = await DocumentPicker.getDocumentAsync({ type: 'image/*' });
-                        if (!result.canceled) {
-                            setBillPhoto(result.assets[0].uri);
-                            if (Platform.OS === 'web') window.alert('Photo attached!');
+                        const options = ['Take Photo', 'Choose from Gallery', 'Cancel'];
+                        const cancelIndex = 2;
+
+                        if (Platform.OS === 'web') {
+                            const result = await DocumentPicker.getDocumentAsync({ type: 'image/*' });
+                            if (!result.canceled) setBillPhoto(result.assets[0].uri);
+                            return;
                         }
+
+                        Alert.alert(
+                            'Add Receipt',
+                            'Select an option',
+                            [
+                                {
+                                    text: 'Take Photo',
+                                    onPress: async () => {
+                                        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                                        if (status !== 'granted') {
+                                            Alert.alert('Permission Denied', 'Camera access is required to take photos.');
+                                            return;
+                                        }
+                                        const result = await ImagePicker.launchCameraAsync({
+                                            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                                            quality: 0.7,
+                                        });
+                                        if (!result.canceled) setBillPhoto(result.assets[0].uri);
+                                    }
+                                },
+                                {
+                                    text: 'Choose from Gallery',
+                                    onPress: async () => {
+                                        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                                        if (status !== 'granted') {
+                                            Alert.alert('Permission Denied', 'Media library access is required.');
+                                            return;
+                                        }
+                                        const result = await ImagePicker.launchImageLibraryAsync({
+                                            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                                            quality: 0.7,
+                                        });
+                                        if (!result.canceled) setBillPhoto(result.assets[0].uri);
+                                    }
+                                },
+                                { text: 'Cancel', style: 'cancel' }
+                            ]
+                        );
                     }}>
                         <MaterialCommunityIcons name="camera-plus-outline" size={24} color={colors.TEXT_SECONDARY} />
                         <Text style={styles.actionLabel}>{billPhoto ? 'Bill Attached ✅' : 'Add Bills'}</Text>
@@ -229,111 +275,107 @@ export default function AddTransactionScreen({ route, navigation }) {
                     </View>
                 </Modal>
 
-                <Modal visible={showDateModal} transparent animationType="fade">
+                <Modal visible={showDateModal} transparent animationType="slide">
                     <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Select Transaction Date</Text>
+                        <View style={styles.pickerModalContent}>
+                            <View style={styles.pickerHeader}>
+                                <Text style={styles.pickerTitle}>Select Transaction Date</Text>
                                 <TouchableOpacity onPress={() => setShowDateModal(false)}>
                                     <Ionicons name="close" size={24} color={colors.TEXT_PRIMARY} />
                                 </TouchableOpacity>
                             </View>
 
-                            <Text style={styles.inputHint}>Format: DD/MM/YYYY</Text>
-                            {Platform.OS === 'web' ? (
-                                <input
-                                    type="date"
-                                    style={{
-                                        padding: 12,
-                                        borderRadius: 8,
-                                        border: `1px solid ${colors.BORDER}`,
-                                        marginBottom: 20,
-                                        fontSize: 16,
-                                        width: '100%',
-                                        outline: 'none'
-                                    }}
-                                    value={selectedDate.toISOString().split('T')[0]}
-                                    onChange={(e) => {
-                                        const newDate = new Date(e.target.value);
-                                        const current = new Date(selectedDate);
-                                        current.setFullYear(newDate.getFullYear(), newDate.getMonth(), newDate.getDate());
-                                        setSelectedDate(current);
-                                    }}
-                                />
-                            ) : (
-                                <View style={styles.datePickerContainer}>
-                                    <TextInput
-                                        style={styles.nativeDateInput}
-                                        value={selectedDate.toLocaleDateString('en-GB')}
-                                        placeholder="DD/MM/YYYY"
-                                        keyboardType="number-pad"
-                                        maxLength={10}
-                                        onChangeText={(text) => {
-                                            if (text.length === 10) {
-                                                const [d, m, y] = text.split('/').map(Number);
-                                                if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
-                                                    const newDate = new Date(selectedDate);
-                                                    newDate.setFullYear(y, m - 1, d);
-                                                    setSelectedDate(newDate);
-                                                }
-                                            }
-                                        }}
-                                    />
-                                </View>
-                            )}
+                            <View style={styles.pickerBody}>
+                                <ScrollView style={styles.pickerColumn} showsVerticalScrollIndicator={false}>
+                                    {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                                        <TouchableOpacity
+                                            key={d}
+                                            style={[styles.pickerItem, selectedDate.getDate() === d && styles.activePickerItem]}
+                                            onPress={() => {
+                                                const d2 = new Date(selectedDate);
+                                                d2.setDate(d);
+                                                setSelectedDate(d2);
+                                            }}
+                                        >
+                                            <Text style={[styles.pickerItemText, selectedDate.getDate() === d && styles.activePickerItemText]}>{d}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
 
-                            <Text style={styles.inputHint}>Format: HH:MM (24h)</Text>
-                            {Platform.OS === 'web' ? (
-                                <input
-                                    type="time"
-                                    style={{
-                                        padding: 12,
-                                        borderRadius: 8,
-                                        border: `1px solid ${colors.BORDER}`,
-                                        marginBottom: 20,
-                                        fontSize: 16,
-                                        width: '100%',
-                                        outline: 'none'
-                                    }}
-                                    value={selectedDate.toTimeString().slice(0, 5)}
-                                    onChange={(e) => {
-                                        const [h, m] = e.target.value.split(':').map(Number);
-                                        const current = new Date(selectedDate);
-                                        current.setHours(h, m);
-                                        setSelectedDate(current);
-                                    }}
-                                />
-                            ) : (
-                                <View style={styles.datePickerContainer}>
-                                    <TextInput
-                                        style={styles.nativeDateInput}
-                                        value={selectedDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                                        placeholder="HH:MM"
-                                        keyboardType="number-pad"
-                                        maxLength={5}
-                                        onChangeText={(text) => {
-                                            if (text.length === 5) {
-                                                const [h, m] = text.split(':').map(Number);
-                                                if (!isNaN(h) && !isNaN(m)) {
-                                                    const newDate = new Date(selectedDate);
-                                                    newDate.setHours(h, m);
-                                                    setSelectedDate(newDate);
-                                                }
-                                            }
-                                        }}
-                                    />
-                                </View>
-                            )}
+                                <ScrollView style={styles.pickerColumn} showsVerticalScrollIndicator={false}>
+                                    {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, idx) => (
+                                        <TouchableOpacity
+                                            key={m}
+                                            style={[styles.pickerItem, selectedDate.getMonth() === idx && styles.activePickerItem]}
+                                            onPress={() => {
+                                                const d2 = new Date(selectedDate);
+                                                d2.setMonth(idx);
+                                                setSelectedDate(d2);
+                                            }}
+                                        >
+                                            <Text style={[styles.pickerItemText, selectedDate.getMonth() === idx && styles.activePickerItemText]}>{m}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
 
-                            <View style={styles.modalActions}>
+                                <ScrollView style={styles.pickerColumn} showsVerticalScrollIndicator={false}>
+                                    {[2024, 2025, 2026, 2027].map(y => (
+                                        <TouchableOpacity
+                                            key={y}
+                                            style={[styles.pickerItem, selectedDate.getFullYear() === y && styles.activePickerItem]}
+                                            onPress={() => {
+                                                const d2 = new Date(selectedDate);
+                                                d2.setFullYear(y);
+                                                setSelectedDate(d2);
+                                            }}
+                                        >
+                                            <Text style={[styles.pickerItemText, selectedDate.getFullYear() === y && styles.activePickerItemText]}>{y}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+                            </View>
+
+                            <View style={[styles.pickerHeader, { marginTop: 20 }]}>
+                                <Text style={styles.pickerTitle}>Select Time</Text>
+                            </View>
+
+                            <View style={[styles.pickerBody, { height: 120 }]}>
+                                <ScrollView style={styles.pickerColumn} showsVerticalScrollIndicator={false}>
+                                    {Array.from({ length: 24 }, (_, i) => i).map(h => (
+                                        <TouchableOpacity
+                                            key={h}
+                                            style={[styles.pickerItem, selectedDate.getHours() === h && styles.activePickerItem]}
+                                            onPress={() => {
+                                                const d2 = new Date(selectedDate);
+                                                d2.setHours(h);
+                                                setSelectedDate(d2);
+                                            }}
+                                        >
+                                            <Text style={[styles.pickerItemText, selectedDate.getHours() === h && styles.activePickerItemText]}>{h.toString().padStart(2, '0')}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+
+                                <ScrollView style={styles.pickerColumn} showsVerticalScrollIndicator={false}>
+                                    {Array.from({ length: 60 }, (_, i) => i).map(m => (
+                                        <TouchableOpacity
+                                            key={m}
+                                            style={[styles.pickerItem, selectedDate.getMinutes() === m && styles.activePickerItem]}
+                                            onPress={() => {
+                                                const d2 = new Date(selectedDate);
+                                                d2.setMinutes(m);
+                                                setSelectedDate(d2);
+                                            }}
+                                        >
+                                            <Text style={[styles.pickerItemText, selectedDate.getMinutes() === m && styles.activePickerItemText]}>{m.toString().padStart(2, '0')}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+                            </View>
+
+                            <View style={styles.pickerFooter}>
                                 <TouchableOpacity
-                                    style={[styles.modalButton, styles.modalCancelBtn]}
-                                    onPress={() => setShowDateModal(false)}
-                                >
-                                    <Text style={styles.modalCancelText}>CANCEL</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.modalButton, styles.modalConfirmBtn]}
+                                    style={[styles.modalButton, styles.modalConfirmBtn, { width: '100%' }]}
                                     onPress={() => {
                                         setDate(selectedDate.toLocaleString('en-GB', {
                                             day: '2-digit', month: 'short', year: 'numeric',
@@ -482,6 +524,13 @@ const getStyles = (colors) => StyleSheet.create({
         bottom: -10,
         width: '60%',
         height: 2,
+    },
+    calculationPreview: {
+        position: 'absolute',
+        bottom: -30,
+        fontSize: 16,
+        color: colors.TEXT_SECONDARY,
+        fontWeight: '500',
     },
     actionList: {
         paddingHorizontal: 15,
@@ -637,5 +686,60 @@ const getStyles = (colors) => StyleSheet.create({
         color: colors.TEXT_SECONDARY,
         fontWeight: 'bold',
         marginBottom: 2,
+    },
+    pickerModalContent: {
+        backgroundColor: colors.CARD_BG,
+        width: '90%',
+        borderRadius: 20,
+        padding: 20,
+        elevation: 10,
+    },
+    pickerHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.BORDER,
+        paddingBottom: 10,
+    },
+    pickerTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: colors.TEXT_PRIMARY,
+    },
+    pickerBody: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        height: 180,
+    },
+    pickerColumn: {
+        flex: 1,
+    },
+    pickerItem: {
+        paddingVertical: 10,
+        alignItems: 'center',
+        borderRadius: 8,
+    },
+    activePickerItem: {
+        backgroundColor: colors.PRIMARY + '20',
+        borderWidth: 1,
+        borderColor: colors.PRIMARY,
+    },
+    pickerItemText: {
+        fontSize: 16,
+        color: colors.TEXT_SECONDARY,
+    },
+    activePickerItemText: {
+        color: colors.PRIMARY,
+        fontWeight: 'bold',
+    },
+    pickerFooter: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        marginTop: 20,
+        borderTopWidth: 1,
+        borderTopColor: colors.BORDER,
+        paddingTop: 15,
     },
 });
